@@ -1,0 +1,160 @@
+---
+import '../styles/global.css';
+
+const baseGenreList = {
+  'Alternative Rock': '0aXgSLLFYRmT87Fit4lU35',
+  Ambient: '1pbOkTqfvFgMMzKfCnTOgG',
+  Blues: '5HUYim9Ao38y3lzJuuJy6a',
+  Classical: '0yYCyUiJDnlU01jjLXxErd',
+  Country: '4zZ87MUbSo1YyBj50AKQWv',
+  Dancehall: '0d2lK8zr1wzwCudVNDvccw',
+  'Deep House': '7vD3EPo8uGyqJqqckZ3e6M',
+  Disco: '70ZCTyQaVN8iwsuCuYX1F6',
+  'Drum and Bass': '5ALTYHhJzCasMIZuo0MqOq',
+  Dubstep: '6TgD960XDPCLsBvZJIjq4i',
+  EDM: '51V1kDRorMxXDHxmaImWCE',
+  Electronic: '7qHoNdW8d4DCjnbDZVoOMn',
+  Folk: '49B54TpeFQLFDpgl9eE8ry',
+  Rap: '3mdw5yxk21OIDtq6nZS9jC',
+  House: '5VC6LnsZoZEtUNjCQqEnKm',
+  Indie: '5M3eIQcuAIWKbIwhoCnwew',
+  Jazz: '7JEOVv3bn1sUnSuWEhVHVR',
+  Latin: '6rdVDi8QGSVeidyVDeClPj',
+  Metal: '3VxZpLk7y8GK65jJmep1ux',
+  Pop: '3mQLQ5ZVpjixLv4P6h1RMn',
+  'Rhythm and Blues': '0CE9O4AdppRNfiQIsPAXkk',
+  Reggae: '2iQc86tECGhSjmSx1zViIC',
+  Reggaeton: '0SVoqDG5ReplwbaqROD1QS',
+  Rock: '3GhEQkyQCTZOzzCOw8cNP5',
+  Soundtrack: '5uKhl4UAg4EH8QxaToxDT7',
+  Techno: '6kio0EUKcGw4dcc2h9XSH5',
+  Trance: '4OB0bbEGXiKnXxZAo0eGUN',
+  Trap: '6mxg4NxqkR8cr1o8hBPG5A'
+};
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Spotify Top Tracks by Genre</title>
+  </head>
+  <body>
+    <main>
+      <h1>Spotify Top Tracks</h1>
+      <section class="controls">
+        <input id="genre-input" placeholder="genre" />
+        <button id="add-genre" type="button">Add</button>
+      </section>
+      <section id="columns"></section>
+    </main>
+
+    <script id="base-genres" type="application/json" set:html={JSON.stringify(baseGenreList)}></script>
+
+    <script>
+      const columnsEl = document.getElementById('columns');
+      const genreInputEl = document.getElementById('genre-input');
+      const addGenreEl = document.getElementById('add-genre');
+      const baseGenres = JSON.parse(document.getElementById('base-genres').textContent);
+      const genreEntries = Object.entries(baseGenres);
+
+      const addGenre = (genre) => {
+        if (!genre.trim()) return;
+
+        const card = document.createElement('article');
+        card.className = 'card';
+
+        const title = document.createElement('a');
+        title.className = 'card-title';
+        title.target = '_blank';
+        title.rel = 'noopener noreferrer';
+        title.textContent = genre;
+
+        const playlistId = baseGenres[genre];
+        if (playlistId) {
+          title.href = `https://open.spotify.com/playlist/${playlistId}`;
+        } else {
+          title.href = '#';
+        }
+
+        const tableWrap = document.createElement('div');
+        tableWrap.className = 'table-wrap';
+        const table = document.createElement('table');
+        const tbody = document.createElement('tbody');
+        const loadingRow = document.createElement('tr');
+        loadingRow.innerHTML = '<td>Loading...</td>';
+        tbody.appendChild(loadingRow);
+        table.appendChild(tbody);
+        tableWrap.appendChild(table);
+
+        card.appendChild(title);
+        card.appendChild(tableWrap);
+
+        columnsEl.prepend(card);
+
+        fetch(`/api/get_playlist/${encodeURIComponent(genre)}`)
+          .then((response) => {
+            if (!response.ok) {
+              return response
+                .json()
+                .then((payload) => {
+                  throw new Error(payload?.error || `HTTP ${response.status}`);
+                })
+                .catch(() => {
+                  throw new Error(`HTTP ${response.status}`);
+                });
+            }
+            return response.json();
+          })
+          .then((tracks) => {
+            tbody.innerHTML = '';
+            tracks.forEach((track, index) => {
+              const row = document.createElement('tr');
+              const cell = document.createElement('td');
+              const artists = (track.artists || []).map((artist) => artist.name).join(', ');
+
+              const link = document.createElement('a');
+              link.className = 'track-link';
+              link.target = '_blank';
+              link.rel = 'noopener noreferrer';
+              link.href = track.external_urls.spotify;
+              link.textContent = track.name;
+
+              cell.append(`${index + 1}. `);
+              cell.appendChild(link);
+              cell.append(` - ${artists}`);
+
+              row.appendChild(cell);
+              tbody.appendChild(row);
+            });
+          })
+          .catch((error) => {
+            const message = error?.message || 'Unknown error';
+            tbody.innerHTML = '';
+            const row = document.createElement('tr');
+            const cell = document.createElement('td');
+            cell.className = 'error';
+            cell.textContent = `Could not load tracks for this genre: ${message}`;
+            row.appendChild(cell);
+            tbody.appendChild(row);
+          });
+      };
+
+      addGenreEl.addEventListener('click', () => {
+        addGenre(genreInputEl.value);
+        genreInputEl.value = '';
+      });
+
+      genreInputEl.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          addGenre(genreInputEl.value);
+          genreInputEl.value = '';
+        }
+      });
+
+      for (const [genre] of genreEntries) {
+        addGenre(genre);
+      }
+    </script>
+  </body>
+</html>
