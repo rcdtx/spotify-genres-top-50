@@ -1,43 +1,62 @@
-import { Buffer } from 'buffer';
-
 export async function onRequestGet(context) {
-    const { env, params } = context
-    const client_id = env.CLIENT_ID
-    const client_secret = env.CLIENT_SECRET
-    const base64Credentials = Buffer.from(`${client_id}:${client_secret}`).toString('base64');
+  const { env, params } = context;
+  const clientId = env.CLIENT_ID;
+  const clientSecret = env.CLIENT_SECRET;
 
-    const _getToken = async () => {
-        const result = await fetch('https://accounts.spotify.com/api/token', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Authorization': 'Basic ' + base64Credentials
-            },
-            body: 'grant_type=client_credentials'
-        });
+  if (!clientId || !clientSecret) {
+    return new Response(JSON.stringify({ error: 'Missing CLIENT_ID or CLIENT_SECRET environment variable.' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
 
-        const data = await result.json();
-        return data.access_token;
-    };
+  const tokenResponse = await fetch('https://accounts.spotify.com/api/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Authorization: `Basic ${btoa(`${clientId}:${clientSecret}`)}`
+    },
+    body: 'grant_type=client_credentials'
+  });
 
-    const _getGenreTracks = async (token, genreId) => {
-        const result = await fetch(`https://api.spotify.com/v1/search?q=genre:%20${genreId}&type=track&limit=50`, {
-            method: 'GET',
-            headers: { 'Authorization': 'Bearer ' + token }
-        });
+  if (!tokenResponse.ok) {
+    return new Response(JSON.stringify({ error: 'Failed to authenticate with Spotify.' }), {
+      status: 502,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
 
-        const data = await result.json();
-        return data.tracks;
-    };
+  const { access_token: accessToken } = await tokenResponse.json();
+  const searchQuery = encodeURIComponent(`genre:${params.genre}`);
 
-    const token = await _getToken();
-    const tracks = await _getGenreTracks(token, params.genre);
+  const tracksResponse = await fetch(`https://api.spotify.com/v1/search?q=${searchQuery}&type=track&limit=50`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
 
-    const allowed = ['artists', 'external_urls', 'name', 'popularity', 'uri']
+  if (!tracksResponse.ok) {
+    return new Response(JSON.stringify({ error: 'Failed to fetch tracks from Spotify.' }), {
+      status: 502,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
 
-    const topTracks = tracks.items;
-    const topTracksSorted = topTracks.sort((a, b) => b.popularity - a.popularity || Date.parse(b.album.release_date) - Date.parse(a.album.release_date));
-    const filteredTracks = topTracksSorted.map(item => Object.fromEntries(allowed.map(k => [k, item[k]])));
+  const tracksData = await tracksResponse.json();
+  const allowedFields = ['artists', 'external_urls', 'name', 'popularity', 'uri'];
 
-    return new Response(JSON.stringify(filteredTracks))
+  const sortedTracks = (tracksData?.tracks?.items || []).sort(
+    (a, b) => b.popularity - a.popularity || Date.parse(b.album.release_date) - Date.parse(a.album.release_date)
+  );
+
+  const filteredTracks = sortedTracks.map((track) =>
+    Object.fromEntries(allowedFields.map((field) => [field, track[field]]))
+  );
+
+  return new Response(JSON.stringify(filteredTracks), {
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'public, s-maxage=3600'
+    }
+  });
 }
